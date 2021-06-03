@@ -38,13 +38,8 @@ struct TBlkDev
 };
 #endif /* __PROGTEST__ */
 
-
-struct CFile
-{
-    char        fileName[32];
-    uint32_t    fileSize;
-    uint32_t    fileBlock;
-};
+#define myEOF (uint32_t)(-1)
+#define HEADERFS 0.1
 
 class CFileSystem
 {
@@ -59,43 +54,57 @@ class CFileSystem
 
     }
 
+    static void      printBuffer                                (void* data, size_t countSectors)
+    {
+        uint8_t * dataInt = (uint8_t*)data;
+        for(int i = 0; i < 512 * countSectors; i++)
+        {
+            printf("%d ", dataInt[i]);
+            if(i % 128 == 0 && i > 0) printf("\n");
+            //if(i > 1024) break;
+        }
+        printf("\n\n\n");
+    }
+
     static bool    CreateFs                                ( const TBlkDev   & dev )
     {
 
-        // Define variables for first three blocks (FAT, FIRST_FREE, LINKED_LIST)
-        size_t i = 0;
-        size_t sectorsFAT = ((40 * DIR_ENTRIES_MAX) / SECTOR_SIZE);                                                             // count of sectors for FAT block
+        // Define variables for blocks (FAT, FIRST_FREE, LINKED_LIST, FILES)
+        uint32_t sectorsFAT = ((40 * DIR_ENTRIES_MAX) / SECTOR_SIZE);                                                                           // count of sectors for FAT block
         sectorsFAT += (double)((40 * DIR_ENTRIES_MAX) / SECTOR_SIZE) - sectorsFAT > 0.0000001 ?  1 : 0;
-        size_t bufferFATSize = sectorsFAT * (SECTOR_SIZE / 4) * sizeof(char);                                                   // size of FAT block in bytes
-        char *bufferFAT = (char*)malloc(bufferFATSize);                                                                         // buffer for FAT block
-        uint32_t *buffer = (uint32_t*)malloc(SECTOR_SIZE);
-        size_t sectorsLinkedList = (dev.m_Sectors - sectorsFAT - 1) / SECTOR_SIZE;                                              // count of sectors for linked list
-        sectorsLinkedList += (double)((dev.m_Sectors - sectorsFAT - 1) / SECTOR_SIZE) - sectorsLinkedList > 0.0000001 ?  1 : 0;
-        size_t bufferLinkedListSize = sectorsLinkedList * SECTOR_SIZE;                                                          // buffer size for linked list
-        uint32_t * bufferLinkedList = (uint32_t*)malloc(bufferLinkedListSize);                                                  // buffer for linked list
-        size_t sectorsFiles = dev.m_Sectors - sectorsFAT - sectorsLinkedList;                                   // count of sectors for files data
-
+        uint8_t *bufferFAT = (uint8_t*)calloc(sectorsFAT * SECTOR_SIZE, sizeof(uint8_t));                                                                  // buffer for FAT block
+        uint32_t *buffer = (uint32_t*)calloc(SECTOR_SIZE / 4, sizeof(uint32_t));
+        uint32_t sectorsLinkedList = dev.m_Sectors * HEADERFS - 1 - sectorsFAT;                                                                 // count of sectors for linked list
+        uint32_t * bufferLinkedList = (uint32_t*)calloc(sectorsLinkedList * SECTOR_SIZE / 4, sizeof(uint32_t));                                                  // buffer for linked list
+        uint32_t firstFree = sectorsFAT + sectorsLinkedList + 1;
         // Printing info about file system
         printf("Total number of sectors: %d\n", dev.m_Sectors + 1);
-       /* printf("Sectors for file allocation table: 0 - %d\n", sectorsFAT - 1);
+        printf("Sectors for file allocation table: 0 - %d\n", sectorsFAT - 1);
         printf("Sector for pointer to first free sector: %d\n", sectorsFAT);
         printf("Sectors for linked list: %d - %d\n", sectorsFAT + 1, sectorsFAT + sectorsLinkedList);
-        printf("Number of sectors for file data: %d\n", sectorsFiles);*/
-
+        printf("Number of sectors for file data: %d\n", dev.m_Sectors - sectorsFAT - sectorsLinkedList);
+        printf("First free sector: %d\n", firstFree);
         // Writing first FAT block
-        for(i = 0; i < bufferFATSize; i++) bufferFAT[i] = 0;
+        //printBuffer(bufferFAT, sectorsFAT);
         dev.m_Write(0, bufferFAT, sectorsFAT);
-        free(bufferFAT);
-        // Writing Pointer to first free sector
-        for(i = 0; i < SECTOR_SIZE; i++) buffer[i] = 0;
-       // buffer[0] =
-        dev.m_Write(sectorsFAT, buffer, 1);
-        free(buffer);
-        // Writing linked list block
-        for(i = 0; i < sectorsFiles; i++) bufferLinkedList[i] = i + 1;
-        dev.m_Write(sectorsFAT + 1, bufferLinkedList, sectorsLinkedList);
-        //free(bufferLinkedList);
 
+        // Writing Pointer to first free sector
+        buffer[0] = firstFree;
+        //printBuffer(buffer, 1);
+        dev.m_Write(sectorsFAT, buffer, 1);
+
+        // Writing linked list block
+        uint32_t fileSectors = dev.m_Sectors - sectorsFAT - sectorsLinkedList;
+        for(uint32_t i = 0; i < fileSectors; i++)
+            bufferLinkedList[i] = i + firstFree;
+
+        bufferLinkedList[fileSectors] = myEOF;
+        printBuffer(bufferLinkedList, sectorsLinkedList);
+
+        dev.m_Write(sectorsFAT + 1, bufferLinkedList, sectorsLinkedList);
+        free(bufferLinkedList);
+        free(bufferFAT);
+        free(buffer);
         return true;
     }
 
