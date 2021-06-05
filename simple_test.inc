@@ -132,14 +132,14 @@ static void        testWrite                               ( void )
     buffer[i] = i;
 
   assert ( fs -> WriteFile ( fd, buffer, 100 ) == 100 );
-  //assert ( fs -> CloseFile ( fd ) );
+  assert ( fs -> CloseFile ( fd ) );
 
   /* test other fs operations here */
   
 
   /* umount the filesystem
    */
- // assert ( fs -> Umount () );
+  assert ( fs -> Umount () );
   delete fs;
   
   /* ... and the underlying disk.
@@ -155,17 +155,17 @@ static void        testWrite                               ( void )
    */
 
   
-  //fs = fs -> Mount ( openDisk () );
- // assert ( fs );
+  fs = fs -> Mount ( openDisk () );
+  assert ( fs );
   /* some I/O, tests, list the files
    */
 
-  //for ( bool found = fs -> FindFirst ( info ); found; found = fs -> FindNext ( info )   )
-  //  printf ( "%-30s %6zd\n", info . m_FileName, info . m_FileSize );
+  for ( bool found = fs -> FindFirst ( info ); found; found = fs -> FindNext ( info )   )
+    printf ( "%-30s %6zd\n", info . m_FileName, info . m_FileSize );
      
-  //assert ( fs -> Umount () );
-  //delete fs;
-  //doneDisk ();
+  assert ( fs -> Umount () );
+  delete fs;
+  doneDisk ();
 }
 //-------------------------------------------------------------------------------------------------
 int main ( void )

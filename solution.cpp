@@ -115,8 +115,8 @@ class CFileSystem
         bool close()
         {
             if(!file) return false;
-            file = NULL;
             if(writeMode) file->size = bytes;
+            file = NULL;
             return true;
         }
 
@@ -133,7 +133,7 @@ class CFileSystem
             }
             while(len > 0)
             {
-                uint32_t writen = (uint32_t)(len) < (uint32_t)(SECTOR_SIZE - positionSector) ? len : SECTOR_SIZE - positionSector;
+                uint32_t writen = (uint32_t)len < (uint32_t)(SECTOR_SIZE - positionSector) ? len : SECTOR_SIZE - positionSector;
                 memcpy(sector + positionSector, data, writen);
                 if(fileSystem->device.m_Read(currentSector, sector, 1) != 1)
                 {
@@ -161,9 +161,32 @@ class CFileSystem
             return res;
         }
 
-        void read()
+        size_t read(uint8_t *data, size_t len)
         {
-
+            len = len < file->size - bytes ? len : file->size - bytes;
+            uint32_t positionSector = bytes % SECTOR_SIZE;
+            size_t res = 0;
+            if(!len || writeMode || file->fileBlock == 0) return res;
+            uint8_t *sector = (uint8_t*)calloc(SECTOR_SIZE, sizeof(uint8_t));
+            while(len > 0)
+            {
+                if(currentSector == myEOF || fileSystem->device.m_Read(currentSector, sector, 1))
+                {
+                    free(sector);
+                    return res;
+                }
+                size_t read = (uint32_t)len < (uint32_t)(SECTOR_SIZE - positionSector) ? len : SECTOR_SIZE - positionSector;
+                memcpy(data, sector+positionSector, read);
+                data += read;
+                bytes += read;
+                len -= read;
+                res += read;
+                positionSector = (positionSector + read)%SECTOR_SIZE;
+                if(!positionSector)
+                    currentSector = fileSystem->linkedList[currentSector - shift];
+            }
+            free(sector);
+            return res;
         }
 
         CFile *file;
@@ -225,7 +248,7 @@ class CFileSystem
         free(headerFirst);
         free(headerLinkedList);
 
-        printf(retFAT && retFirst && retLinkedList ? "CreateFS: Success\n" : "CreateFS: Fail\n");
+        //printf(retFAT && retFirst && retLinkedList ? "CreateFS: Success\n" : "CreateFS: Fail\n");
         return retFAT && retFirst && retLinkedList;
     }
 
@@ -239,9 +262,20 @@ class CFileSystem
 
     bool           Umount                                  ( void )
     {
-
-
-        return true;
+        uint32_t    *headerFirst = (uint32_t*)calloc(SECTOR_SIZE / 4, sizeof(uint32_t));
+        headerFirst[0] = firstFree;
+        bool retFAT = sectorsFAT == device.m_Write(0, fileTable, sectorsFAT);
+        bool retFirst = 1 == device.m_Write(sectorsFAT, headerFirst, 1);
+        bool retLinkedList = sectorsLinkedList == device.m_Write(sectorsFAT + 1, linkedList, sectorsLinkedList);
+        for (size_t i = 0; i < OPEN_FILES_MAX; i++) CloseFile(i);
+        free(fileTable);
+        free(descriptors);
+        free(linkedList);
+        fileTable = NULL;
+        linkedList = NULL;
+        descriptors = NULL;
+        free(headerFirst);
+        return retFAT && retFirst && retLinkedList;
     }
 
     CFile * FindFile(const char* fileName)
@@ -326,7 +360,9 @@ class CFileSystem
                                                              void            * data,
                                                              size_t            len )
     {
-
+        if(fd < 0 || fd >= OPEN_FILES_MAX) return 0;
+        size_t read = descriptors[fd].read((uint8_t*)data, len);
+        return read;
     }
     size_t         WriteFile                               ( int               fd,
                                                              const void      * data,
@@ -341,15 +377,47 @@ class CFileSystem
     }
     bool           DeleteFile                              ( const char      * fileName )
     {
-
+        CFile *file = FindFile(fileName);
+        if(!file) return false;
+        for(size_t i = 0; i < OPEN_FILES_MAX; i++) // checking for functional descriptors
+            if(descriptors[i].file == file) return false;
+        uint32_t shift = sectorsLinkedList - 1 - sectorsFAT;
+        if(file->fileBlock != GetTail(file->fileBlock)) // deleting file
+        {
+            linkedList[GetTail(file->fileBlock) - shift] = firstFree;
+            firstFree = file->fileBlock;
+        }
+        file->fileBlock = 0;
+        file->size = 0;
+        return true;
     }
     bool           FindFirst                               ( TFile           & file )
     {
-
+        for (size_t i = 0; i < DIR_ENTRIES_MAX; i++)
+        {
+            if(fileTable[i].fileBlock != 0)
+            {
+                strncpy(file.m_FileName, fileTable[i].fileName, FILENAME_LEN_MAX + 1);
+                file.m_FileSize = fileTable[i].size;
+                return true;
+            }
+        }
+        return false;
     }
     bool           FindNext                                ( TFile           & file )
     {
-
+        CFile * find = FindFile(file.m_FileName);
+        if(!find) return false;
+        for(; ++find < fileTable + DIR_ENTRIES_MAX;)
+        {
+            if(find->fileBlock != 0)
+            {
+                strncpy(file.m_FileName, find->fileName, FILENAME_LEN_MAX + 1);
+                file.m_FileSize = find->size;
+                return true;
+            }
+        }
+        return false;
     }
   private:
     uint32_t sectorsFAT;
@@ -363,5 +431,5 @@ class CFileSystem
 
 
 #ifndef __PROGTEST__
-#include "simple_test.inc"
+#include "simple_test1.inc"
 #endif /* __PROGTEST__ */
