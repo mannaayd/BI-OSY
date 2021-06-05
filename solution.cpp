@@ -39,20 +39,37 @@ struct TBlkDev
 #endif /* __PROGTEST__ */
 
 #define myEOF (uint32_t)(-1)
-#define HEADERFS 0.1
+#define HEADERFS 0.07
 
 class CFileSystem
 {
   public:
     ~CFileSystem()
     {
-
+        free (files);
+        free (linkedList);
+        free (descriptors);
     }
 
     CFileSystem()
     {
 
     }
+
+    struct CFile
+    {
+        char fileName[29];
+        uint32_t size;
+        uint32_t fileBlock;
+    };
+
+    struct CFileDescriptor
+    {
+        CFile *file;
+        bool isFree = true;
+        bool writeMode;
+        uint32_t currentSector;
+    };
 
     static void      printBuffer                                (void* data, size_t countSectors)
     {
@@ -68,47 +85,26 @@ class CFileSystem
 
     static bool    CreateFs                                ( const TBlkDev   & dev )
     {
+        uint32_t sectorsFAT = ((sizeof(CFile) * DIR_ENTRIES_MAX) / SECTOR_SIZE);
+        sectorsFAT += (double)((sizeof(CFile) * DIR_ENTRIES_MAX) / SECTOR_SIZE) - sectorsFAT > 0.0000001 ?  1 : 0;
+        uint32_t sectorsLinkedList = dev.m_Sectors * HEADERFS - 1 - sectorsFAT;
 
-        // Define variables for blocks (FAT, FIRST_FREE, LINKED_LIST, FILES)
-        uint32_t sectorsFAT = ((40 * DIR_ENTRIES_MAX) / SECTOR_SIZE);                                                                           // count of sectors for FAT block
-        sectorsFAT += (double)((40 * DIR_ENTRIES_MAX) / SECTOR_SIZE) - sectorsFAT > 0.0000001 ?  1 : 0;
-        uint8_t *bufferFAT = (uint8_t*)calloc(sectorsFAT * SECTOR_SIZE, sizeof(uint8_t));                                                                  // buffer for FAT block
-        uint32_t *buffer = (uint32_t*)calloc(SECTOR_SIZE / 4, sizeof(uint32_t));
-        uint32_t sectorsLinkedList = dev.m_Sectors * HEADERFS - 1 - sectorsFAT;                                                                 // count of sectors for linked list
-        uint32_t * bufferLinkedList = (uint32_t*)calloc(sectorsLinkedList * SECTOR_SIZE / 4, sizeof(uint32_t));                                                  // buffer for linked list
-        uint32_t firstFree = sectorsFAT + sectorsLinkedList + 1;
-        // Printing info about file system
-        printf("Total number of sectors: %d\n", dev.m_Sectors + 1);
-        printf("Sectors for file allocation table: 0 - %d\n", sectorsFAT - 1);
-        printf("Sector for pointer to first free sector: %d\n", sectorsFAT);
-        printf("Sectors for linked list: %d - %d\n", sectorsFAT + 1, sectorsFAT + sectorsLinkedList);
-        printf("Number of sectors for file data: %d\n", dev.m_Sectors - sectorsFAT - sectorsLinkedList);
-        printf("First free sector: %d\n", firstFree);
-        // Writing first FAT block
-        //printBuffer(bufferFAT, sectorsFAT);
-        dev.m_Write(0, bufferFAT, sectorsFAT);
+        void        *headerFAT = calloc(sectorsFAT * SECTOR_SIZE, sizeof(uint8_t));
+        uint32_t    *headerFirst = (uint32_t*)calloc(SECTOR_SIZE / 4, sizeof(uint32_t));
+        void        *headerLinkedList = calloc(sectorsLinkedList * SECTOR_SIZE, sizeof(uint8_t));
 
-        // Writing Pointer to first free sector
-        buffer[0] = firstFree;
-        //printBuffer(buffer, 1);
-        dev.m_Write(sectorsFAT, buffer, 1);
+        headerFirst[0] = sectorsFAT + sectorsLinkedList + 1;
 
-        // Writing linked list block
-        uint32_t fileSectors = dev.m_Sectors - sectorsFAT - sectorsLinkedList;
-        for(uint32_t i = 0; i < fileSectors; i++)
-            bufferLinkedList[i] = i + firstFree;
-
-        bufferLinkedList[fileSectors] = myEOF;
-        printBuffer(bufferLinkedList, sectorsLinkedList);
-
-        dev.m_Write(sectorsFAT + 1, bufferLinkedList, sectorsLinkedList);
-        free(bufferLinkedList);
-        free(bufferFAT);
-        free(buffer);
-        return true;
+        bool retFAT = sectorsFAT == dev.m_Write(0, headerFAT, sectorsFAT);
+        bool retFirst = 1 == dev.m_Write(sectorsFAT, headerFirst, 1);
+        bool retLinkedList = sectorsLinkedList == dev.m_Write(sectorsFAT + 1, headerLinkedList, sectorsLinkedList);
+        free(headerFAT);
+        free(headerFirst);
+        free(headerLinkedList);
+        return retFAT && retFirst && retLinkedList;
     }
 
-    uint32_t getValueFromSector(uint32_t sectorPos, uint32_t valuePos, uint32_t valueSize) // value size must be from 1 to 4
+    uint32_t getValueFromSector(uint32_t sectorPos, uint32_t valuePos, uint32_t valueSize) // valueSize must be from 1 to 4
     {
         uint32_t value;
 
@@ -118,23 +114,123 @@ class CFileSystem
     static CFileSystem * Mount                             ( const TBlkDev   & dev )
     {
 
+        CFileSystem * fs = new CFileSystem();
+        fs->SetDevice(dev);
+        return fs;
+    }
+
+    void SetDevice( const TBlkDev   & dev )
+    {
+        device = &dev;
+        sectorsFAT = ((40 * DIR_ENTRIES_MAX) / SECTOR_SIZE);
+        sectorsLinkedList = dev.m_Sectors * HEADERFS - 1 - sectorsFAT;
     }
     bool           Umount                                  ( void )
     {
+        if(!device) return false;
 
+        return true;
     }
     size_t         FileSize                                ( const char      * fileName )
     {
 
     }
-    int            OpenFile                                ( const char      * fileName,
-                                                             bool              writeMode )
+
+    int GetFileBlock(const char      * fileName)
+    {
+
+        uint8_t *bufferFAT = (uint8_t*)calloc(sectorsFAT * SECTOR_SIZE, sizeof(uint8_t));
+        device->m_Read(0, bufferFAT, sectorsFAT);
+        char bufferName[32];
+        uint32_t bufferSize[1];
+        uint32_t bufferFileBlock[1];
+        for(std::size_t i = 0; i < DIR_ENTRIES_MAX; i+=40)
+        {
+            memcpy(bufferName, bufferFAT + i, 32);
+            memcpy(bufferSize, bufferFAT + i + 32, 4);
+            memcpy(bufferFileBlock, bufferFAT + i + 32 + 4, 4);
+            if(bufferFileBlock[0] == 0) break;
+            if(!strcmp(fileName, bufferName))
+            {
+                free(bufferFAT);
+                return bufferFileBlock[0];
+            }
+        }
+        free(bufferFAT);
+        return -1;
+    }
+
+
+
+    uint32_t GetRef(uint32_t addr)
     {
 
     }
-    bool           CloseFile                               ( int               fd )
+
+    void SetRef(uint32_t dest, uint32_t src)
     {
 
+    }
+
+    int CreateFile(const char      * fileName)
+    {
+        uint8_t *bufferFAT = (uint8_t*)calloc(sectorsFAT * SECTOR_SIZE, sizeof(uint8_t));
+        device->m_Read(0, bufferFAT, sectorsFAT);
+        char bufferName[32];
+        uint32_t bufferSize[1];
+        uint32_t bufferFileBlock[1];
+        for(std::size_t i = 0; i < DIR_ENTRIES_MAX; i+=40)
+        {
+            memcpy(bufferFileBlock, bufferFAT + i + 32 + 4, 4);
+            if(bufferFileBlock[0] == 0)
+            {
+                free(bufferFAT);
+                device->m_Read(sectorsFAT, bufferFileBlock, 1);
+                bufferSize[0] = 0;
+                if(bufferFileBlock[0] == myEOF) return -1;
+                memcpy(bufferFAT + i, fileName, 32);
+                memcpy(bufferFAT + i + 32, bufferSize, 4);
+                memcpy(bufferFAT + i + 32 + 4, bufferFileBlock, 4);
+                return bufferFileBlock[0];
+            }
+        }
+        free(bufferFAT);
+        return -1;
+    }
+
+    int            OpenFile                                ( const char      * fileName,
+                                                             bool              writeMode )
+    {
+        int res = GetFileBlock(fileName);
+        if(res == -1 && writeMode)
+        {
+            res = CreateFile(fileName);
+        }
+        if(res == -1) return -1;
+        for(std::size_t i = 0; i < OPEN_FILES_MAX; i++)
+        {
+            if(openedFiles[i] == -1)
+            {
+                 if(!writeMode) res *= -1;
+                openedFiles[i] = res;
+                return res;
+            }
+        }
+        return -1;
+    }
+
+
+    bool           CloseFile                               ( int               fd )
+    {
+        for(std::size_t i = 0; i < OPEN_FILES_MAX; i++)
+        {
+            if(openedFiles[i] == fd)
+            {
+                openedFiles[i] = -1;
+                return true;
+            }
+        }
+        return false;
     }
     size_t         ReadFile                                ( int               fd,
                                                              void            * data,
@@ -161,7 +257,10 @@ class CFileSystem
 
     }
   private:
-
+    TBlkDev dev;
+    CFile * files;
+    uint32_t * nodes;
+    CFileDescriptor * descriptors;
 };
 
 
