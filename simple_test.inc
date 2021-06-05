@@ -171,6 +171,6 @@ static void        testWrite                               ( void )
 int main ( void )
 {
   testMkFs ();
-  testWrite ();
+  //testWrite ();
   return 0;
 }
