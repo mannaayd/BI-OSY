@@ -75,7 +75,7 @@ static TBlkDev     createDisk                              ( void )
  */
 static TBlkDev     openDisk                                ( void )
 {
-  g_Fp = fopen ( "/tmp/disk_content", "r+b" );
+  g_Fp = fopen ( "disk_content", "r+b" );
   if ( ! g_Fp ) 
     throw "Error opening backend block device";
   fseek ( g_Fp, 0, SEEK_END );
@@ -127,19 +127,19 @@ static void        testWrite                               ( void )
    */
 
   int fd = fs -> OpenFile ( "hello", true );
-
+    printf("%d\n", fd);
   for ( int i = 0; i < 100; i ++ )
     buffer[i] = i;
 
   assert ( fs -> WriteFile ( fd, buffer, 100 ) == 100 );
-  assert ( fs -> CloseFile ( fd ) );
+  //assert ( fs -> CloseFile ( fd ) );
 
   /* test other fs operations here */
   
 
   /* umount the filesystem
    */
-  assert ( fs -> Umount () );
+ // assert ( fs -> Umount () );
   delete fs;
   
   /* ... and the underlying disk.
@@ -155,22 +155,22 @@ static void        testWrite                               ( void )
    */
 
   
-  fs = fs -> Mount ( openDisk () );
-  assert ( fs );
+  //fs = fs -> Mount ( openDisk () );
+ // assert ( fs );
   /* some I/O, tests, list the files
    */
 
-  for ( bool found = fs -> FindFirst ( info ); found; found = fs -> FindNext ( info )   )
-    printf ( "%-30s %6zd\n", info . m_FileName, info . m_FileSize );
+  //for ( bool found = fs -> FindFirst ( info ); found; found = fs -> FindNext ( info )   )
+  //  printf ( "%-30s %6zd\n", info . m_FileName, info . m_FileSize );
      
-  assert ( fs -> Umount () );
-  delete fs;
-  doneDisk ();
+  //assert ( fs -> Umount () );
+  //delete fs;
+  //doneDisk ();
 }
 //-------------------------------------------------------------------------------------------------
 int main ( void )
 {
   testMkFs ();
-  //testWrite ();
+  testWrite ();
   return 0;
 }
