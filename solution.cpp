@@ -154,7 +154,7 @@ public:
                 res += read;
                 positionSector = (positionSector + read)%SECTOR_SIZE;
                 if(!positionSector)
-                    currentSector = fileSystem->linkedList[currentSector - shift];
+                    currentSector = fileSystem->linkedList[currentSector];
             }
             free(sector);
             return res;
