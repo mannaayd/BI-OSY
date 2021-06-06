@@ -115,7 +115,7 @@ static void        testMkFs                                ( void )
 //-------------------------------------------------------------------------------------------------
 static void        testWrite                               ( void )
 {
-  char      buffer [1500];
+  char      buffer [530];
   TFile     info;
   /**
    * mount the peviously created fs
@@ -128,22 +128,23 @@ static void        testWrite                               ( void )
 
   int fd = fs -> OpenFile ( "hello", true );
   printf("%d\n", fd);
-  for ( int i = 0; i < 1500; i ++ )
-    buffer[i] = i;
-  assert (fs -> WriteFile ( fd, buffer, 1500 )  == 1500 );
- // assert ( fs -> CloseFile ( fd ) );
+  for ( int i = 0; i < 530; i ++ )
+    if(i < 512) buffer[i] = 2;
+    else buffer[i] = 3;
+  assert (fs -> WriteFile ( fd, buffer, 530 )  == 530 );
+  assert ( fs -> CloseFile ( fd ) );
 
   /* test other fs operations here */
   
 
   /* umount the filesystem
    */
- //assert ( fs -> Umount () );
+  assert ( fs -> Umount () );
   delete fs;
   
   /* ... and the underlying disk.
    */
-  //doneDisk ();
+  doneDisk ();
   
   
   /* The FS as well as the underlying disk simulation is stopped. It corresponds i.e. to the
@@ -154,17 +155,17 @@ static void        testWrite                               ( void )
    */
 
   
- // fs = fs -> Mount ( openDisk () );
- // assert ( fs );
+  fs = fs -> Mount ( openDisk () );
+  assert ( fs );
   /* some I/O, tests, list the files
    */
 
- // for ( bool found = fs -> FindFirst ( info ); found; found = fs -> FindNext ( info )   )
- //   printf ( "%-30s %6zd\n", info . m_FileName, info . m_FileSize );
-     
- // assert ( fs -> Umount () );
-  //delete fs;
- // doneDisk ();
+  for ( bool found = fs -> FindFirst ( info ); found; found = fs -> FindNext ( info )   )
+    printf ( "%-30s %6zd\n", info . m_FileName, info . m_FileSize );
+  //fs->DeleteFile("hello");
+  assert ( fs -> Umount () );
+  delete fs;
+  doneDisk ();
 }
 //-------------------------------------------------------------------------------------------------
 int main ( void )

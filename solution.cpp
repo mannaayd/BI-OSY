@@ -43,6 +43,7 @@ struct TBlkDev
 #define HEADERFS 0.07
 //#define DEBUG_OSY_OPENFILE
 //#define DEBUG_OSY_WRITEFILE
+#define DEBUG_OSY_DELETEFILE
 
 class CFileSystem
 {
@@ -90,7 +91,6 @@ public:
 
         size_t write(const uint8_t * data, size_t len)
         {
-            printBuffer(data, 1);
             uint32_t positionSector = bytes % SECTOR_SIZE;
             size_t res = 0;
             if(len == 0 || !file || !writeMode) return 0;
@@ -127,11 +127,12 @@ public:
                     fileSystem->linkedList[add] = myEOF;
                 }
             }
+            //fileSystem->printSector(shift + 2);
             free(sector);
             return res;
         }
 
-        size_t read(uint8_t *data, size_t len)
+        size_t read(uint8_t *data, size_t len) // ???
         {
             len = len < file->size - bytes ? len : file->size - bytes;
             uint32_t positionSector = bytes % SECTOR_SIZE;
@@ -140,7 +141,7 @@ public:
             uint8_t *sector = (uint8_t*)calloc(SECTOR_SIZE, sizeof(uint8_t));
             while(len > 0)
             {
-                if(currentSector == myEOF || fileSystem->device.m_Read(currentSector, sector, 1))
+                if(currentSector == myEOF || fileSystem->device.m_Read(currentSector + shift, sector, 1) != 1)
                 {
                     free(sector);
                     return res;
@@ -214,6 +215,13 @@ public:
         printf("\n\n\n");
     }
 
+    void printSector(uint32_t pos)
+    {
+        uint8_t buffer[SECTOR_SIZE];
+        device.m_Read(pos, buffer, 1);
+        printBuffer(buffer, 1);
+    }
+
     static bool    CreateFs                                ( const TBlkDev   & dev )
     {
         uint32_t sectorsFAT = ((sizeof(CFile) * DIR_ENTRIES_MAX) / SECTOR_SIZE);
@@ -245,7 +253,7 @@ public:
     bool           Umount                                  ( void )
     {
         bool retFAT = sectorsFAT == device.m_Write(0, fileTable, sectorsFAT);
-        bool retLinkedList = sectorsLinkedList == device.m_Write(sectorsFAT + 1, linkedList, sectorsLinkedList);
+        bool retLinkedList = sectorsLinkedList == device.m_Write(sectorsFAT, linkedList, sectorsLinkedList);
         for (size_t i = 0; i < OPEN_FILES_MAX; i++) CloseFile(i);
         free(fileTable);
         free(descriptors);
@@ -361,18 +369,23 @@ public:
     }
     bool           DeleteFile                              ( const char      * fileName )
     {
+        #ifdef DEBUG_OSY_DELETEFILE
+            printf("Before delete:\n");
+            //printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
+        #endif
         CFile *file = FindFile(fileName);
         if(!file) return false;
         for(size_t i = 0; i < OPEN_FILES_MAX; i++) // checking for functional descriptors
             if(descriptors[i].file == file) return false;
-        uint32_t shift = sectorsLinkedList - 1 - sectorsFAT;
-        //if(file->fileBlock != GetTail(file->fileBlock)) // deleting file
-      //  {
-          //  linkedList[GetTail(file->fileBlock) - shift] = firstFree;
-          //  firstFree = file->fileBlock;
-      //  }
+        //uint32_t shift = sectorsLinkedList - 1 - sectorsFAT;
+        FreeSequence(file->fileBlock); // deleting sequence
+        linkedList[file->fileBlock] = 0;
         file->fileBlock = 0;
         file->size = 0;
+        #ifdef DEBUG_OSY_DELETEFILE
+            printf("After delete:\n");
+            printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
+        #endif
         return true;
     }
     bool           FindFirst                               ( TFile           & file )
@@ -416,5 +429,5 @@ private:
 
 
 #ifndef __PROGTEST__
-#include "simple_test.inc"
+#include "simple_test1.inc"
 #endif /* __PROGTEST__ */
