@@ -41,6 +41,8 @@ struct TBlkDev
 #define myEOF (uint32_t)(-1)
 #define FREE_BLOCK 0
 #define HEADERFS 0.07
+//#define DEBUG_OSY_OPENFILE
+//#define DEBUG_OSY_WRITEFILE
 
 class CFileSystem
 {
@@ -73,7 +75,6 @@ public:
             {
                 file->size = 0;
                 fileSystem->FreeSequence(file->fileBlock); // deleting sequence
-                file->fileBlock = myEOF;
             }
             currentSector = file->fileBlock;
             return true;
@@ -103,7 +104,7 @@ public:
             {
                 uint32_t writen = (uint32_t)len < (uint32_t)(SECTOR_SIZE - positionSector) ? len : SECTOR_SIZE - positionSector;
                 memcpy(sector + positionSector, data, writen);
-                if(fileSystem->device.m_Read(currentSector + shift, sector, 1) != 1)
+                if(fileSystem->device.m_Write(currentSector + shift, sector, 1) != 1)
                 {
                     free(sector);
                     return res;
@@ -121,8 +122,9 @@ public:
                         free(sector);
                         return res;
                     }
-                    fileSystem->linkedList[currentSector - shift] = add;
+                    fileSystem->linkedList[currentSector] = add;
                     currentSector = add;
+                    fileSystem->linkedList[add] = myEOF;
                 }
             }
             free(sector);
@@ -186,7 +188,6 @@ public:
 
         device.m_Read(0, fileTable, sectorsFAT);
         device.m_Read(sectorsFAT, linkedList, sectorsLinkedList);
-        //firstFree = buffer[0];
 
         descriptors = (CFileDescriptor*)calloc(OPEN_FILES_MAX, sizeof(CFileDescriptor));
         for(size_t i = 0; i < OPEN_FILES_MAX; i++) descriptors[i] = CFileDescriptor(this);
@@ -199,7 +200,6 @@ public:
         {
             printf("%d ", dataInt[i]);
             if(i % 128 == 0 && i > 0) printf("\n");
-            //if(i > 1024) break;
         }
         printf("\n\n\n");
     }
@@ -294,12 +294,15 @@ public:
     void FreeSequence(uint32_t start)
     {
         uint32_t tmp;
-        while(linkedList[start] != myEOF)
+        uint32_t act = start;
+        while(linkedList[act] != myEOF)
         {
-            tmp = start;
-            start = linkedList[start];
+            tmp = act;
+            act = linkedList[act];
             linkedList[tmp] = FREE_BLOCK;
         }
+        linkedList[act] = FREE_BLOCK;
+        linkedList[start] = myEOF;
     }
 
 
@@ -319,14 +322,15 @@ public:
         if(fd >= OPEN_FILES_MAX)
             return -1;
         CFile * file = FindFile(fileName);      // finding file
-       // printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
         if(writeMode && !file)                  // need to create file
             file = CreateFile(fileName);
         if(!file)                               // can't create or find file
             return -1;
         if(!descriptors[fd].open(file, writeMode))      // overwriting file
             return -1;
-        //printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
+        #ifdef DEBUG_OSY_OPENFILE
+            printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
+        #endif
         return fd;
     }
 
@@ -347,10 +351,12 @@ public:
                                                              const void      * data,
                                                              size_t            len )
     {
-        //printBuffer(data, 1);
         if(fd < 0 || fd >= OPEN_FILES_MAX) return 0;
         size_t writen = descriptors[fd].write((const uint8_t*)data, len);
         descriptors[fd].file->size = descriptors[fd].bytes;
+        #ifdef DEBUG_OSY_WRITEFILE
+            printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
+        #endif
         return writen;
     }
     bool           DeleteFile                              ( const char      * fileName )

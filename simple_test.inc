@@ -115,7 +115,7 @@ static void        testMkFs                                ( void )
 //-------------------------------------------------------------------------------------------------
 static void        testWrite                               ( void )
 {
-  char      buffer [600];
+  char      buffer [1500];
   TFile     info;
   /**
    * mount the peviously created fs
@@ -128,10 +128,9 @@ static void        testWrite                               ( void )
 
   int fd = fs -> OpenFile ( "hello", true );
   printf("%d\n", fd);
-  for ( int i = 0; i < 600; i ++ )
+  for ( int i = 0; i < 1500; i ++ )
     buffer[i] = i;
-    fs -> WriteFile ( fd, buffer, 600 );
-  //assert (  == 600 );
+  assert (fs -> WriteFile ( fd, buffer, 1500 )  == 1500 );
  // assert ( fs -> CloseFile ( fd ) );
 
   /* test other fs operations here */
