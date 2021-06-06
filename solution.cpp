@@ -41,9 +41,6 @@ struct TBlkDev
 #define myEOF (uint32_t)(-1)
 #define FREE_BLOCK 0
 #define HEADERFS 0.07
-//#define DEBUG_OSY_OPENFILE
-//#define DEBUG_OSY_WRITEFILE
-#define DEBUG_OSY_DELETEFILE
 
 class CFileSystem
 {
@@ -127,12 +124,11 @@ public:
                     fileSystem->linkedList[add] = myEOF;
                 }
             }
-            //fileSystem->printSector(shift + 2);
             free(sector);
             return res;
         }
 
-        size_t read(uint8_t *data, size_t len) // ???
+        size_t read(uint8_t *data, size_t len)
         {
             len = len < file->size - bytes ? len : file->size - bytes;
             uint32_t positionSector = bytes % SECTOR_SIZE;
@@ -170,7 +166,6 @@ public:
 
     ~CFileSystem()
     {
-        //printBuffer(fileTable, 2);
         if(fileTable)   free (fileTable);
         if(linkedList)  free (linkedList);
         if(descriptors) free (descriptors);
@@ -192,34 +187,6 @@ public:
 
         descriptors = (CFileDescriptor*)calloc(OPEN_FILES_MAX, sizeof(CFileDescriptor));
         for(size_t i = 0; i < OPEN_FILES_MAX; i++) descriptors[i] = CFileDescriptor(this);
-    }
-
-    static void         printBuffer                                 (const void* data, size_t countSectors)
-    {
-        uint8_t * dataInt = (uint8_t*)data;
-        for(int i = 0; i < 512 * countSectors; i++)
-        {
-            printf("%d ", dataInt[i]);
-            if(i % 128 == 0 && i > 0) printf("\n");
-        }
-        printf("\n\n\n");
-    }
-
-    static void         printArray                                  (uint32_t *data, std::size_t len)
-    {
-        for(std::size_t i = 0; i < len; i++)
-        {
-            printf("%d ", data[i]);
-            if(i % 64 == 0 && i > 0) printf("\n");
-        }
-        printf("\n\n\n");
-    }
-
-    void printSector(uint32_t pos)
-    {
-        uint8_t buffer[SECTOR_SIZE];
-        device.m_Read(pos, buffer, 1);
-        printBuffer(buffer, 1);
     }
 
     static bool    CreateFs                                ( const TBlkDev   & dev )
@@ -285,7 +252,7 @@ public:
         {
             if(fileTable[i].fileBlock == 0)
             {
-                strncpy(fileTable[i].fileName, fileName, FILENAME_LEN_MAX + 1);
+                strcpy(fileTable[i].fileName, fileName);
                 fileTable[i].fileName[FILENAME_LEN_MAX] = '\0';
                 fileTable[i].size = 0;
                 uint32_t next = GetFreeSector();
@@ -336,9 +303,6 @@ public:
             return -1;
         if(!descriptors[fd].open(file, writeMode))      // overwriting file
             return -1;
-        #ifdef DEBUG_OSY_OPENFILE
-            printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
-        #endif
         return fd;
     }
 
@@ -362,30 +326,18 @@ public:
         if(fd < 0 || fd >= OPEN_FILES_MAX) return 0;
         size_t writen = descriptors[fd].write((const uint8_t*)data, len);
         descriptors[fd].file->size = descriptors[fd].bytes;
-        #ifdef DEBUG_OSY_WRITEFILE
-            printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
-        #endif
         return writen;
     }
     bool           DeleteFile                              ( const char      * fileName )
     {
-        #ifdef DEBUG_OSY_DELETEFILE
-            printf("Before delete:\n");
-            //printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
-        #endif
         CFile *file = FindFile(fileName);
         if(!file) return false;
         for(size_t i = 0; i < OPEN_FILES_MAX; i++) // checking for functional descriptors
             if(descriptors[i].file == file) return false;
-        //uint32_t shift = sectorsLinkedList - 1 - sectorsFAT;
         FreeSequence(file->fileBlock); // deleting sequence
         linkedList[file->fileBlock] = 0;
         file->fileBlock = 0;
         file->size = 0;
-        #ifdef DEBUG_OSY_DELETEFILE
-            printf("After delete:\n");
-            printArray(linkedList, sectorsLinkedList * SECTOR_SIZE / 4);
-        #endif
         return true;
     }
     bool           FindFirst                               ( TFile           & file )
@@ -394,7 +346,7 @@ public:
         {
             if(fileTable[i].fileBlock != 0)
             {
-                strncpy(file.m_FileName, fileTable[i].fileName, FILENAME_LEN_MAX + 1);
+                strcpy(file.m_FileName, fileTable[i].fileName);
                 file.m_FileSize = fileTable[i].size;
                 return true;
             }
@@ -409,7 +361,7 @@ public:
         {
             if(find->fileBlock != 0)
             {
-                strncpy(file.m_FileName, find->fileName, FILENAME_LEN_MAX + 1);
+                strcpy(file.m_FileName, find->fileName);
                 file.m_FileSize = find->size;
                 return true;
             }
@@ -420,7 +372,6 @@ private:
     uint32_t sectorsFAT;
     uint32_t sectorsLinkedList;
     TBlkDev device;
-    //uint32_t firstFree;
     uint32_t fileSectors;
     CFile * fileTable;
     uint32_t * linkedList;
@@ -429,5 +380,5 @@ private:
 
 
 #ifndef __PROGTEST__
-#include "simple_test1.inc"
+    #include "simple_test.inc"
 #endif /* __PROGTEST__ */
